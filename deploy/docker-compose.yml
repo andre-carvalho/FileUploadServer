@@ -1,0 +1,21 @@
+version: '2'
+
+services:
+  auth-server:
+    image: 'softwarevale/auth-server:v1'
+    restart: on-failure
+    ports:
+      - "8181:8000"
+    networks:
+      - terrama2_net 
+    environment:
+      HOST: 10.142.0.2
+      PORT: 5432
+      DBUSER: postgres
+      DBPASS: mysecretpassword
+      DBNAME: auth_server
+      SERVER_DOMAIN: '35.231.50.207'
+
+networks:
+  terrama2_net:
+    external: true
