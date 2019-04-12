@@ -100,5 +100,9 @@ docker-compose -f env/docker-compose.yml down
 After run the server, you may use the command line to test:
 ```
 curl http://127.0.0.1:5000/locations -d '{"description":"teste","lat":-23.121,"lng":-45.231,"datetime":"2018-04-02","photo":"aps897d8907an98ansd98nuasd"}' -v -H "Content-Type: application/json"
+
+curl -i -X POST -H "Content-Type: multipart/form-data" -F "data=@image.jpg" -F "form_id=1234" http://127.0.0.1:5000/photo
+
+curl -i -X POST -H "Content-Type: multipart/form-data" -F "data=@image.jpg" -F '{"description":"teste","lat":-23.121,"lng":-45.231,"datetime":"2018-04-02","user_id":"2134"}' http://127.0.0.1:5000/send
 ```
 or maybe the Postman...

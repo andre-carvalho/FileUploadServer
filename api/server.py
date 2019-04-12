@@ -1,73 +1,119 @@
-import os, base64
-from flask import Flask, request, send_file
-from flask_restful import reqparse, abort, Api, Resource
+import os
+import json
+from flask import Flask, request, send_from_directory
+from flask_restful import abort, Api, Resource
+from werkzeug.utils import secure_filename
 from flask_cors import CORS
-from storage_module.locations_dao import LocationsDao
-from base64_module.base64_utils import B64Utils
+#from storage_module.midias_dao import MidiasDao
 from logs_module.log_writer import logWriter
+
+UPLOAD_FOLDER = '/tmp/uploadImages'
+ALLOWED_EXTENSIONS = set(['png', 'jpg'])
 
 SERVER_IP='0.0.0.0'
 SERVER_DOMAIN=os.getenv('SERVER_DOMAIN', '127.0.0.1:5000')
-DATA_PATH='/uploadImages'
+LOG_PATH='/logs'
 
 app = Flask(__name__)
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 cors = CORS(app, resources={r"/*": {"origins": "*"}})
 api = Api(app)
 
-class Locations(Resource):
+class PhotoUpload(Resource):
+    
+    def allowed_file(self, filename):
+        return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+    
     def post(self):
-        # set default
-        json_data=None
-
-        # Trying parse the input JSON
-        try:
-            json_data = request.get_json(force=True)
-        except Exception as error:
-            error_msg = 'error in Locations class when trying parse input JSON data. Return HTTP:500'
-            logWriter(os.path.abspath(os.curdir) + DATA_PATH).write(error_msg)
+        # check if the post request has the file part
+        if 'data' not in request.files or 'form_id' not in request.form:
+            # No file part
+            error_msg = 'Error in PhotoUpload class when trying test the file part from request. Return HTTP:500'
+            logWriter(os.path.abspath(os.curdir) + LOG_PATH).write(error_msg)
             return {'status': 'parse error'}, 500
-        
-        # trying store data into database
-        try:
-            db = LocationsDao()
-            id_photo = db.storeLocation(json_data)
-            url_picture = "http://{0}/locations/{1}".format(SERVER_DOMAIN, id_photo)
-            db.updateLocation(id_photo, url_picture)
-        except Exception as error:
-            error_msg = 'error in Locations class when trying store posted data. Return HTTP:500'
-            logWriter(os.path.abspath(os.curdir) + DATA_PATH).write(error_msg)
-            return {'status': 'database error'}, 500
+        file = request.files['data']
+        form_id = request.form['form_id']
+        # if user does not select file, browser also
+        # submit an empty part without filename
+        if file.filename == '' or form_id == '':
+            error_msg = 'Error in PhotoUpload class when trying read the filename. Return HTTP:500'
+            logWriter(os.path.abspath(os.curdir) + LOG_PATH).write(error_msg)
+            return {'status': 'parse error'}, 500
+        if file and self.allowed_file(file.filename):
+            filename = secure_filename(file.filename)
+            if not os.path.isdir(app.config['UPLOAD_FOLDER'] + '/' +form_id):
+                os.mkdir(app.config['UPLOAD_FOLDER'] + '/' +form_id)
+            file.save(os.path.join(app.config['UPLOAD_FOLDER']+ '/' +form_id, filename))
+            return {'status':'completed'}, 201
 
-        # trying write picture to disk
+class PhotoDownload(Resource):
+    def get(self, form_id, photo_id):
+        dir=os.path.join(app.config['UPLOAD_FOLDER'],form_id)
+        filename=photo_id+'.jpg'
+        # trying read picture from disk and send to client
         try:
-            curpath = os.path.abspath(os.curdir) + DATA_PATH
-            b64 = B64Utils(curpath, json_data['photo'])
-            b64.writeToBinary(id_photo)
+            if os.path.isfile(dir+'/'+filename):
+                return send_from_directory(dir, filename, as_attachment=False)
         except Exception as error:
-            error_msg = 'error in Locations class when trying write picture to disk. Return HTTP:500'
-            logWriter(os.path.abspath(os.curdir) + DATA_PATH).write(error_msg)
-            return {'status': 'IO error'}, 500
-        
-        return {'status':'completed'}, 201
-
-class LocationsList(Resource):
-     def get(self, location_id):
-        
-        curpath = os.path.abspath(os.curdir) + DATA_PATH
-        b64 = B64Utils(curpath)
-
-        # trying read picture from disk
-        try:
-            imageio,attach,mime = b64.readFromBinary(location_id)
-        except Exception as error:
-            error_msg = 'error in LocationsList class when trying load picture({0}) from disk. Return HTTP:404'.format(location_id)
-            logWriter(os.path.abspath(os.curdir) + DATA_PATH).write(error_msg)
+            error_msg = 'Error in PhotoDownload class when trying load picture({0}) from disk. Return HTTP:404'.format(photo_id)
+            logWriter(os.path.abspath(os.curdir) + LOG_PATH).write(error_msg)
+            error_msg = str(error)
+            logWriter(os.path.abspath(os.curdir) + LOG_PATH).write(error_msg)
             return 404
-        return send_file(imageio, attachment_filename=attach, mimetype=mime)
 
+class PhotoInput(Resource):
+    
+    def allowed_file(self, filename):
+        return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+    
+    def post(self):
+        # check if the post request has the file part
+        if 'data' not in request.files or 'json_data' not in request.form:
+            # No file part
+            error_msg = 'Error in PhotoUpload class when trying test the file part from request. Return HTTP:500'
+            logWriter(os.path.abspath(os.curdir) + LOG_PATH).write(error_msg)
+            return {'status': 'parse error'}, 500
+        file = request.files['data']
+        json_data = request.form['json_data']
+        # parse JSON:
+        aJson = json.loads(json_data)
+        user_id = aJson["user_id"]
+        print(aJson)
+        # if user does not select file, browser also
+        # submit an empty part without filename
+        if file.filename == '' or user_id == '':
+            error_msg = 'Error in PhotoUpload class when trying read the filename. Return HTTP:500'
+            logWriter(os.path.abspath(os.curdir) + LOG_PATH).write(error_msg)
+            return {'status': 'parse error'}, 500
+        if file and self.allowed_file(file.filename):
+            filename = secure_filename(file.filename)
+            if not os.path.isdir(app.config['UPLOAD_FOLDER'] + '/' +user_id):
+                os.mkdir(app.config['UPLOAD_FOLDER'] + '/' +user_id)
+            file.save(os.path.join(app.config['UPLOAD_FOLDER']+ '/' +user_id, filename))
+            return {'status':'completed'}, 201
 
-api.add_resource(Locations, '/locations') # Route_1
-api.add_resource(LocationsList, '/locations/<location_id>')
+class PhotoOutput(Resource):
+    def get(self, user_id, photo_id):
+        dir=os.path.join(app.config['UPLOAD_FOLDER'],user_id)
+        filename=photo_id+'.jpg'
+        # trying read picture from disk and send to client
+        try:
+            if os.path.isfile(dir+'/'+filename):
+                return send_from_directory(dir, filename, as_attachment=False)
+            else:
+                abort(404)
+        except Exception as error:
+            error_msg = 'Error in PhotoUpload class when trying read the filename. Return HTTP:500'
+            error_msg = error_msg+'\n'+str(error)
+            logWriter(os.path.abspath(os.curdir) + LOG_PATH).write(error_msg)
+            return {'status': 'file not found'}, 404
+
+api.add_resource(PhotoUpload, '/photo')
+api.add_resource(PhotoDownload, '/photo/<form_id>/<photo_id>')
+# receive the JSON data together pictures
+api.add_resource(PhotoInput, '/send')
+api.add_resource(PhotoOutput, '/collect/<user_id>/<photo_id>')
 
 
 if __name__ == '__main__':
